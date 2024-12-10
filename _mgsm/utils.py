@@ -71,6 +71,9 @@ def get_lang_examples(lang: str) -> list[dict[str, str]]:
 
 
 def get_all_examples() -> list[dict[str, str]]:
+    """
+    从多种语言的数据集中加载所有样本，并将它们整合为一个包含问题、答案和语言信息的列表。
+    """
     examples = []
     for lang in ALL_LANGUAGES:
         # if lang != "en":
@@ -80,6 +83,9 @@ def get_all_examples() -> list[dict[str, str]]:
 
 
 def random_id(length=4):
+    """
+    该函数生成一个长度为指定值的随机 ID 由英文字母和数字组成。
+    """
     characters = string.ascii_letters + string.digits  # includes both upper/lower case letters and numbers
     random_id = ''.join(random.choices(characters, k=length))
     return random_id
