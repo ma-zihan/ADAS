@@ -10,7 +10,6 @@ import backoff
 import numpy as np
 import openai
 from tqdm import tqdm
-
 from mgsm_prompt import get_init_archive, get_prompt, get_reflexion_prompt
 
 client = openai.OpenAI()
@@ -33,7 +32,7 @@ def get_json_response_from_gpt(
         model,
         system_message,
         temperature=0.5
-): # 向 GPT 模型发送消息，生成基于 msg 的 JSON 格式回复。
+): # 简单的单步任务，只有一个系统消息和一个用户消息，不需要上下文。
     response = client.chat.completions.create(
         model=model,
         messages=[
@@ -54,7 +53,7 @@ def get_json_response_from_gpt_reflect(
         msg_list, # 一个消息列表，包含了对话中的所有消息
         model,
         temperature=0.8
-): # 向 GPT 模型发送消息，生成基于 msg_list 的 JSON 格式回复。
+): # 需要多轮上下文的复杂对话场景，支持更复杂的任务和反思机制。
     response = client.chat.completions.create(
         model=model,
         messages=msg_list,
@@ -418,7 +417,7 @@ if __name__ == "__main__":
     parser.add_argument('--shuffle_seed', type=int, default=0)
     parser.add_argument('--n_repreat', type=int, default=1)
     parser.add_argument('--multiprocessing', action='store_true', default=True)
-    parser.add_argument('--max_workers', type=int, default=48)
+    parser.add_argument('--max_workers', type=int, default=8)
     parser.add_argument('--debug', action='store_true', default=True)
     parser.add_argument('--save_dir', type=str, default='results/')
     parser.add_argument('--expr_name', type=str, default="mgsm_gpt3.5_results")
@@ -426,7 +425,7 @@ if __name__ == "__main__":
     parser.add_argument('--debug_max', type=int, default=3)
     parser.add_argument('--model',
                         type=str,
-                        default='gpt-4o-2024-05-13',
+                        default='gpt-3.5-turbo-0125',
                         choices=['gpt-4-turbo-2024-04-09', 'gpt-3.5-turbo-0125', 'gpt-4o-2024-05-13'])
 
     args = parser.parse_args()
