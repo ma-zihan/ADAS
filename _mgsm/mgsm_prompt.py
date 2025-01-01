@@ -524,7 +524,7 @@ Put your new reflection thinking in "reflection". Repeat the previous "thought" 
 
 
 def get_init_archive():
-    return [COT, COT_SC, Reflexion, LLM_debate, Take_a_step_back, QD, Role_Assignment]
+    return [COT, COT_SC, Reflexion]#, LLM_debate, Take_a_step_back, QD, Role_Assignment]
 
 
 def get_prompt(current_archive, adaptive=False):
