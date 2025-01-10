@@ -26,13 +26,25 @@ PRINT_LLM_DEBUG = False
 SEARCHING_MODE = True
 
 
-@backoff.on_exception(backoff.expo, openai.RateLimitError) # 自动重试机制，处理 OpenAI API 的 RateLimitError
+@backoff.on_exception(backoff.expo, openai.RateLimitError) # Automatic retry mechanism for handling OpenAI API RateLimitError
 def get_json_response_from_gpt(
-        msg, # 一个消息，包含了对话中的最新消息
+        msg, # A message containing the latest message in the conversation
         model,
         system_message,
         temperature=0.5
-): # 简单的单步任务，只有一个系统消息和一个用户消息，不需要上下文。
+): # Simple single-step task with only one system message and one user message, no context needed.
+    """
+    从GPT获取单轮JSON响应
+    
+    Args:
+        msg: 用户消息
+        model: 使用的模型名称
+        system_message: 系统消息
+        temperature: 温度参数，控制输出的随机性
+        
+    Returns:
+        dict: JSON格式的响应
+    """
     response = client.chat.completions.create(
         model=model,
         messages=[
@@ -50,10 +62,21 @@ def get_json_response_from_gpt(
 
 @backoff.on_exception(backoff.expo, openai.RateLimitError)
 def get_json_response_from_gpt_reflect(
-        msg_list, # 一个消息列表，包含了对话中的所有消息
+        msg_list, # A list of messages containing all messages in the conversation
         model,
         temperature=0.8
-): # 需要多轮上下文的复杂对话场景，支持更复杂的任务和反思机制。
+): # Complex dialogue scenario requiring multi-turn context, supporting more complex tasks and reflection mechanisms.
+    """
+    从GPT获取多轮对话的JSON响应
+    
+    Args:
+        msg_list: 消息历史列表
+        model: 使用的模型名称
+        temperature: 温度参数
+        
+    Returns:
+        dict: JSON格式的响应
+    """
     response = client.chat.completions.create(
         model=model,
         messages=msg_list,
@@ -67,7 +90,15 @@ def get_json_response_from_gpt_reflect(
 
 class LLMAgentBase():
     """
+    LLM代理基类，处理与语言模型的交互
+    
     Attributes:
+        output_fields (list): 输出字段列表
+        agent_name (str): 代理名称
+        role (str): 代理角色
+        model (str): 使用的模型
+        temperature (float): 温度参数
+        id (str): 实例唯一ID
     """
 
     def __init__(self, output_fields: list, agent_name: str,
@@ -84,41 +115,14 @@ class LLMAgentBase():
 
     def generate_prompt(self, input_infos, instruction) -> str:
         """
-        # Example   
-
-        self.output_fields = ['answer', 'reasoning']
-
-        ## Input:
-
-        ### input_infos:
-        input_infos = [
-            Info('task', 'User', 'Solve x + 2 = 5.', -1),
-            Info('reasoning', 'Assistant', 'Subtract 2 from both sides.', 0)
-        ]
-
-        ### instruction:
-
-        "Provide the next step."
-
-        ## Output: 
-
-        ### system_prompt:
-
-        You are a helpful assistant.
-        Reply EXACTLY with the following JSON format.
-        {'answer': 'Your answer. Return ONLY an integer. DO NOT return anything other than the integer answer.',
-        'reasoning': 'Your reasoning.'}
-        DO NOT MISS ANY REQUEST FIELDS and ensure that your response is a well-formed JSON object!
-
-        ### prompt:
-
-        \# Your Task:
-        Solve the equation x + 2 = 5.
-
-        \### reasoning #1 by Assistant:
-        Subtract 2 from both sides.
-
-        Provide the next step.
+        生成提示词
+        
+        Args:
+            input_infos: 输入信息列表
+            instruction: 指令
+            
+        Returns:
+            tuple: (系统提示词, 用户提示词)
         """
         # construct system prompt
         output_fields_and_description = {key: f"Your {key}." if not 'answer' in key else f"Your {key}. Return ONLY an integer. DO NOT return anything other than the integer answer." for key in self.output_fields}
@@ -148,7 +152,7 @@ class LLMAgentBase():
         try:
             response_json = {}
             response_json = get_json_response_from_gpt(prompt, self.model, system_prompt, self.temperature)
-            assert len(response_json) == len(self.output_fields), "not returning enough fields" # 确保返回的字段数量与 self.output_fields 一致
+            assert len(response_json) == len(self.output_fields), "not returning enough fields" # Ensure the number of returned fields matches self.output_fields
         except Exception as e:
             # print(e)
             if "maximum context length" in str(e) and SEARCHING_MODE:
@@ -174,11 +178,26 @@ class LLMAgentBase():
 
 
 class AgentSystem():
+    """
+    代理系统类，用于执行实际的问题求解
+    """
     def __init__(self) -> None:
         pass
 
 
 def search(args):
+    """
+    搜索函数，用于生成和优化解决方案
+    
+    主要步骤:
+    1. 加载或初始化存档
+    2. 评估初始解决方案
+    3. 进行多代迭代优化:
+        - 生成新解决方案
+        - 进行反思改进
+        - 评估性能
+        - 保存结果
+    """
     file_path = os.path.join(args.save_dir, f"{args.expr_name}_run_archive.json")
     if os.path.exists(file_path):
         with open(file_path, 'r') as json_file:
@@ -278,29 +297,13 @@ def search(args):
 
 def evaluate(args):
     """
-    对存档中的解决方案进行测试评估，计算每个解决方案的准确率（fitness），并将评估结果保存到一个新的存档文件中。
-
-    例如对于 archive
-    [
-        {"generation": 0, "code": "def forward(task): return task.content", "name": "Solution_1"},
-        {"generation": 1, "code": "def forward(task): return str(int(task.content) * 2)", "name": "Solution_2"}
-    ]
-
-    评估后得到
-    [
-        {
-            "generation": 0,
-            "code": "def forward(task): return task.content",
-            "name": "Solution_1",
-            "test_fitness": "95% Bootstrap Confidence Interval: (85%, 90%)"
-        },
-        {
-            "generation": 1,
-            "code": "def forward(task): return str(int(task.content) * 2)",
-            "name": "Solution_2",
-            "test_fitness": "95% Bootstrap Confidence Interval: (92%, 98%)"
-        }
-    ]
+    评估函数，用于测试解决方案的性能
+    
+    主要步骤:
+    1. 加载存档
+    2. 对每个解决方案进行测试评估
+    3. 计算准确率
+    4. 保存评估结果
     """
     file_path = os.path.join(args.save_dir, f"{args.expr_name}_run_archive.json")
     eval_file_path = str(os.path.join(args.save_dir, f"{args.expr_name}_run_archive.json")).strip(".json") + "_evaluate.json"
@@ -338,34 +341,29 @@ def evaluate(args):
 
 def evaluate_forward_fn(args, forward_str):
     """
-    动态定义并运行一个 forward 函数，用于处理任务队列中的问题，计算生成的答案与正确答案的匹配准确率，并返回准确率列表。
-
-    Example:
-
-    forward_str = "def forward(task): return str(int(task.content) * 2)"
-
-    问题 [{"inputs": "2", "targets": "4"}, {"inputs": "3", "targets": "6"}]:
-
-    - 将 forward_str 动态生成的 forward 方法绑定到 AgentSystem
-    - 执行任务队列中的每个问题（如 2 * 2）
-    - 比较生成的答案（如 "4", "6"）和正确答案，计算准确率。
-
-    输出 [1, 1]  \# 全部答案正确，准确率为 100%
+    评估前向函数，用于执行实际的问题求解和准确率计算
+    
+    Args:
+        args: 参数配置
+        forward_str: 前向函数的字符串表示
+        
+    Returns:
+        list: 准确率列表
     """
     # dynamically define forward()
     # modified from https://github.com/luchris429/DiscoPOP/blob/main/scripts/launch_evo.py
     namespace = {}
-    exec(forward_str, globals(), namespace) # 从字符串 forward_str 中动态生成一个函数。
+    exec(forward_str, globals(), namespace) # Dynamically generate a function from forward_str
     names = list(namespace.keys())
-    # 验证生成的函数是否满足要求。
+    # Validate if the generated function meets requirements
     if len(names) != 1:
         raise AssertionError(f"{len(names)} things in namespace. Please only provide 1")
     func = namespace[names[0]]
     if not callable(func):
         raise AssertionError(f"{func} is not callable")
-    setattr(AgentSystem, "forward", func) # 将生成的函数绑定到 AgentSystem 类的 forward 方法上，以便后续任务使用。
+    setattr(AgentSystem, "forward", func) # Bind the generated function to AgentSystem class's forward method for subsequent tasks
 
-    # 加载任务样本，将其随机排序后划分为验证集或测试集。
+    # Load task samples, shuffle them randomly and split into validation or test sets
     examples = get_all_examples()
     random.seed(args.shuffle_seed)
     random.shuffle(examples)
@@ -375,25 +373,25 @@ def evaluate_forward_fn(args, forward_str):
     else:
         examples = examples[args.valid_size:args.valid_size + args.test_size] * args.n_repreat
 
-    # 从样本中提取问题和答案。
+    # Extract questions and answers from samples
     questions = [example['inputs'] for example in examples]
     answers = [example['targets'] for example in examples]
 
     print(f"problem length: {len(examples)}")
-    max_workers = min(len(examples), args.max_workers) if args.multiprocessing else 1 # 根据任务数量和多线程选项决定并发的最大线程数。
+    max_workers = min(len(examples), args.max_workers) if args.multiprocessing else 1 # Determine maximum number of concurrent threads based on task count and multithreading options
 
-    task_queue = [] # 任务队列
+    task_queue = [] # Task queue
     for q in questions:
-        taskInfo = Info('task', 'User', q, -1) # 生成任务信息
+        taskInfo = Info('task', 'User', q, -1) # Generate task information
         task_queue.append(taskInfo)
 
     agentSystem = AgentSystem()
 
     acc_list = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        results = list(tqdm(executor.map(agentSystem.forward, task_queue), total=len(task_queue))) # 并发执行任务队列中的任务，并将结果存储在 results 列表中
+        results = list(tqdm(executor.map(agentSystem.forward, task_queue), total=len(task_queue))) # Concurrently execute tasks in the task queue and store results in the results list
 
-    for q_idx, res in enumerate(results): # 遍历所有任务的结果，计算准确率。
+    for q_idx, res in enumerate(results): # Iterate through all task results and calculate accuracy
         try:
             if isinstance(res, Info):
                 extracted_answer = res.content
